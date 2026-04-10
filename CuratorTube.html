@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#ff2020">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CuratorTube">
+  <link rel="manifest" id="app-manifest">
+  <title>CuratorTube</title>
+  <style>
+    :root {
+      --red:    #ff2020;
+      --dark:   #1a1a1a;
+      --mid:    #767676;
+      --border: #e2e2e2;
+      --bg:     #f0f0f0;
+      --white:  #ffffff;
+      --shadow: 0 2px 8px rgba(0,0,0,.10);
+      --radius: 8px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    a, button, input, select, .channel-header, .video-card { touch-action: manipulation; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--dark);
+      min-height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    header {
+      background: var(--dark);
+      color: var(--white);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .logo {
+      background: var(--red);
+      color: var(--white);
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 3px 7px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+    }
+    header h1 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    /* ── Layout ─────────────────────────────────────────────── */
+    .container { max-width: 1440px; margin: 0 auto; padding: 24px; }
+
+    /* ── Cards / sections ───────────────────────────────────── */
+    .card {
+      background: var(--white);
+      border-radius: var(--radius);
+      padding: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    /* ── Add feed ───────────────────────────────────────────── */
+    .add-row {
+      display: flex;
+      gap: 8px;
+    }
+    .add-row input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 2px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color .15s;
+      background: var(--white);
+      color: var(--dark);
+    }
+    .add-row input:focus { border-color: var(--red); }
+    .add-row input::placeholder { color: #aaa; }
+
+    .status-line {
+      margin-top: 10px;
+      font-size: 0.83rem;
+      min-height: 18px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .status-line.error   { color: #c00; }
+    .status-line.success { color: #1a8c4e; }
+    .status-line.loading { color: var(--mid); }
+
+    /* ── Buttons ────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 10px 16px;
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: 0.88rem;
+      font-weight: 600;
+      line-height: 1;
+      transition: opacity .15s, background .15s;
+      white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { opacity: .82; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-primary  { background: var(--red);   color: var(--white); }
+    .btn-ghost    { background: transparent;  color: var(--mid);  border: 1px solid var(--border); }
+    .btn-danger   { background: transparent;  color: #c00;        border: 1px solid #fcc; }
+    .btn-sm       { padding: 5px 10px; font-size: 0.78rem; border-radius: 5px; }
+
+    /* ── Channels section ───────────────────────────────────── */
+    .channels-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .channels-top h2 { font-size: 0.9rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--mid); }
+    .channels-top-right { display: flex; align-items: center; gap: 8px; }
+
+    .limit-select {
+      font-size: 0.8rem;
+      padding: 3px 6px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--white);
+      color: var(--dark);
+      cursor: pointer;
+    }
+
+    .channel-block {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      overflow: hidden;
+    }
+    .channel-block:last-child { margin-bottom: 0; }
+
+    .channel-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #fafafa;
+      cursor: pointer;
+      user-select: none;
+    }
+    .channel-header:hover { background: #f0f0f0; }
+
+    .channel-chevron {
+      font-size: 0.85rem;
+      color: var(--mid);
+      flex-shrink: 0;
+      transition: transform 0.2s ease;
+    }
+    .channel-block.collapsed .channel-chevron { transform: rotate(-90deg); }
+
+    .channel-name {
+      flex: 1;
+      font-size: 0.88rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .channel-count {
+      font-size: 0.75rem;
+      color: var(--mid);
+      white-space: nowrap;
+    }
+
+    /* Collapse animation via grid rows */
+    .channel-body {
+      display: grid;
+      grid-template-rows: 1fr;
+      transition: grid-template-rows 0.25s ease;
+    }
+    .channel-block.collapsed .channel-body { grid-template-rows: 0fr; }
+    .channel-body-inner { overflow: hidden; padding: 16px; }
+
+    .empty-msg {
+      text-align: center;
+      color: var(--mid);
+      padding: 20px;
+      font-size: 0.88rem;
+    }
+
+    .videos-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+      gap: 20px;
+    }
+
+    .video-card {
+      background: var(--white);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      cursor: pointer;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+      transition: transform .14s, box-shadow .14s;
+    }
+    .video-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 24px rgba(0,0,0,.14);
+    }
+    .video-thumb-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #e8e8e8;
+      overflow: hidden;
+    }
+    .video-thumb {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .video-info {
+      padding: 12px 14px 14px;
+    }
+    .video-title {
+      font-size: 0.88rem;
+      font-weight: 600;
+      line-height: 1.45;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .video-meta {
+      font-size: 0.75rem;
+      color: var(--mid);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .video-channel {
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .video-date { white-space: nowrap; }
+
+    /* ── Spinner ─────────────────────────────────────────────── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block;
+      width: 13px;
+      height: 13px;
+      border: 2px solid #ddd;
+      border-top-color: var(--red);
+      border-radius: 50%;
+      animation: spin .55s linear infinite;
+      flex-shrink: 0;
+    }
+
+    /* ── Spacing helpers ─────────────────────────────────────── */
+    .mb-6 { margin-bottom: 6px; }
+    .mb-16 { margin-bottom: 16px; }
+    .mt-16 { margin-top: 16px; }
+
+    /* ── Responsive ──────────────────────────────────────────── */
+    @media (max-width: 540px) {
+      .container { padding: 12px; }
+      .videos-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+      .video-title { font-size: 0.8rem; }
+      .video-info  { padding: 8px 10px 10px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="logo">▶</span>
+  <h1>CuratorTube</h1>
+</header>
+
+<div class="container">
+
+  <!-- Add feed -->
+  <div class="card mb-16">
+    <div class="add-row">
+      <input
+        type="text"
+        id="feed-input"
+        placeholder="@handle  or  RSS feed URL"
+        autocomplete="off"
+        spellcheck="false"
+      >
+      <button class="btn btn-primary" id="add-btn">Add feed</button>
+    </div>
+    <p class="status-line" id="add-status"></p>
+  </div>
+
+  <!-- Channels -->
+  <div class="card" id="channels-card">
+    <div class="channels-top">
+      <h2>Channels</h2>
+      <div class="channels-top-right">
+        <select class="limit-select" id="limit-select" title="Videos per channel"></select>
+        <button class="btn btn-ghost btn-sm" id="refresh-all-btn">↻ Refresh all</button>
+      </div>
+    </div>
+    <div id="channels-list">
+      <div class="empty-msg">No channels yet — add a YouTube channel above.</div>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+// ─── PWA: Manifest (inline blob) ─────────────────────────────────────────────
+(function () {
+  const manifest = {
+    name: 'CuratorTube',
+    short_name: 'CuratorTube',
+    description: 'Your curated YouTube RSS reader',
+    start_url: window.location.href,
+    display: 'standalone',
+    background_color: '#f0f0f0',
+    theme_color: '#ff2020',
+    icons: [{
+      src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%23ff2020'/%3E%3Cpolygon points='38,26 78,50 38,74' fill='white'/%3E%3C/svg%3E",
+      sizes: 'any',
+      type: 'image/svg+xml',
+      purpose: 'any maskable'
+    }]
+  };
+  try {
+    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+    document.getElementById('app-manifest').href = URL.createObjectURL(blob);
+  } catch (e) { /* non-critical */ }
+})();
+
+// ─── PWA: Service Worker (inline blob) ───────────────────────────────────────
+// Works when served over HTTPS; registration may be restricted on file:// origins.
+if ('serviceWorker' in navigator) {
+  const SW_CODE = `
+    const CACHE = 'curatorTube-v1';
+    self.addEventListener('install',  () => self.skipWaiting());
+    self.addEventListener('activate', e  => e.waitUntil(clients.claim()));
+    self.addEventListener('fetch',    e  => {
+      e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+    });
+  `;
+  try {
+    const blob = new Blob([SW_CODE], { type: 'application/javascript' });
+    navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(() => {});
+  } catch (e) { /* non-critical */ }
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const STORAGE_KEY = 'ct_feeds_v2';
+const YT_NS    = 'http://www.youtube.com/xml/schemas/2015';
+const MEDIA_NS = 'http://search.yahoo.com/mrss/';
+// Ordered list of CORS proxies to try. Each entry normalises the response to a plain string.
+const PROXIES = [
+  {
+    url:     u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+    extract: async r => { const j = await r.json(); return j.contents || ''; },
+  },
+  {
+    url:     u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+    extract: async r => r.text(),
+  },
+];
+
+async function fetchViaProxy(url) {
+  let lastErr;
+  for (const p of PROXIES) {
+    try {
+      const res = await fetch(p.url(url), { signal: AbortSignal.timeout(10000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const contents = await p.extract(res);
+      if (!contents) throw new Error('Empty response');
+      return contents;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr;
+}
+
+// ─── State ─────────────────────────────────────────────────────────────────────
+let feeds = [];
+try { feeds = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch (e) { feeds = []; }
+
+const videoCache   = {};   // feedId → Video[]
+const loadingFeeds = new Set();
+
+const LIMIT_KEY     = 'ct_video_limit';
+const COLLAPSED_KEY = 'ct_collapsed';
+
+let videoLimit = parseInt(localStorage.getItem(LIMIT_KEY) || '5', 10);
+const collapsedFeeds = new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '[]'));
+
+function saveCollapsed() {
+  localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsedFeeds]));
+}
+
+function toggleCollapse(feedId) {
+  if (collapsedFeeds.has(feedId)) {
+    collapsedFeeds.delete(feedId);
+  } else {
+    collapsedFeeds.add(feedId);
+  }
+  saveCollapsed();
+  renderChannels();
+}
+
+// Populate and wire the limit dropdown
+(function () {
+  const sel = document.getElementById('limit-select');
+  for (let n = 5; n <= 15; n++) {
+    const opt = document.createElement('option');
+    opt.value = n;
+    opt.textContent = `${n} per channel`;
+    if (n === videoLimit) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  sel.addEventListener('change', () => {
+    videoLimit = parseInt(sel.value, 10);
+    localStorage.setItem(LIMIT_KEY, videoLimit);
+    renderChannels();
+  });
+})();
+
+function saveFeeds() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(feeds));
+}
+
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+// ─── Input resolution ─────────────────────────────────────────────────────────
+async function resolveInput(raw) {
+  const val = raw.trim();
+  if (!val) throw new Error('Please enter a handle or URL.');
+
+  // Direct RSS URL
+  if (val.includes('/feeds/videos.xml')) return val;
+
+  // youtube.com/channel/UC... URL
+  if (val.includes('youtube.com/channel/')) {
+    const m = val.match(/channel\/([A-Za-z0-9_-]+)/);
+    if (m) return `https://www.youtube.com/feeds/videos.xml?channel_id=${m[1]}`;
+  }
+
+  // Any other http URL — treat as direct RSS
+  if (val.startsWith('http://') || val.startsWith('https://')) return val;
+
+  // YouTube handle (@handle or bare handle)
+  const handle = val.replace(/^@/, '');
+  const pageUrl = `https://www.youtube.com/@${handle}`;
+
+  let contents;
+  try {
+    contents = await fetchViaProxy(pageUrl);
+  } catch (e) {
+    throw new Error(`Network error while resolving @${handle}`);
+  }
+
+  if (!contents) throw new Error(`Channel page empty (@${handle})`);
+
+  const match = contents.match(
+    /href="(https:\/\/www\.youtube\.com\/feeds\/videos\.xml[^"]+)"/
+  );
+  if (!match) throw new Error(`RSS feed not found for @${handle} — channel may not exist`);
+
+  return match[1].replace(/&amp;/g, '&');
+}
+
+// ─── RSS fetch & parse ────────────────────────────────────────────────────────
+async function fetchFeedData(url) {
+  let contents;
+  try {
+    contents = await fetchViaProxy(url);
+  } catch (e) {
+    throw new Error('Network error — could not reach feed');
+  }
+
+  if (!contents) throw new Error('Empty response from proxy');
+
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(contents, 'text/xml');
+
+  if (xml.querySelector('parsererror')) throw new Error('Invalid XML in feed response');
+
+  const channelName = xml.querySelector('feed > title')?.textContent?.trim()
+    || 'Unknown Channel';
+
+  const videos = Array.from(xml.querySelectorAll('entry')).map(entry => {
+    const videoId  = entry.getElementsByTagNameNS(YT_NS, 'videoId')[0]?.textContent || '';
+    const title    = entry.querySelector('title')?.textContent || 'Untitled';
+    const link     = entry.querySelector('link[rel="alternate"]')?.getAttribute('href')
+                     || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : '#');
+    const published = entry.querySelector('published')?.textContent || '';
+
+    const thumbEl   = entry.getElementsByTagNameNS(MEDIA_NS, 'thumbnail')[0];
+    const thumbnail = thumbEl?.getAttribute('url')
+                     || (videoId ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` : '');
+
+    return { id: videoId || uid(), title, link, published, thumbnail, channelName };
+  });
+
+  return { channelName, videos };
+}
+
+// ─── Feed operations ──────────────────────────────────────────────────────────
+async function addFeed(rawInput) {
+  setAddStatus('loading', '<span class="spinner"></span> Resolving…');
+  setAddBtnDisabled(true);
+
+  try {
+    const rssUrl = await resolveInput(rawInput);
+
+    if (feeds.some(f => f.url === rssUrl)) {
+      throw new Error('Feed already in your list.');
+    }
+
+    setAddStatus('loading', '<span class="spinner"></span> Fetching videos…');
+    const { channelName, videos } = await fetchFeedData(rssUrl);
+
+    const feed = {
+      id:          uid(),
+      name:        channelName,
+      url:         rssUrl,
+      addedAt:     new Date().toISOString(),
+      lastFetched: new Date().toISOString(),
+    };
+
+    feeds.push(feed);
+    videoCache[feed.id] = videos;
+    saveFeeds();
+
+    document.getElementById('feed-input').value = '';
+    setAddStatus('success', `Added: ${channelName} (${videos.length} videos)`);
+    renderChannels();
+
+  } catch (err) {
+    setAddStatus('error', err.message);
+  } finally {
+    setAddBtnDisabled(false);
+  }
+}
+
+async function refreshFeed(feedId) {
+  const feed = feeds.find(f => f.id === feedId);
+  if (!feed || loadingFeeds.has(feedId)) return;
+
+  loadingFeeds.add(feedId);
+  renderChannels();
+
+  try {
+    const { channelName, videos } = await fetchFeedData(feed.url);
+    feed.name        = channelName;
+    feed.lastFetched = new Date().toISOString();
+    videoCache[feedId] = videos;
+    saveFeeds();
+    renderChannels();
+  } catch (err) {
+    console.warn(`Refresh failed for "${feed.name}":`, err.message);
+  } finally {
+    loadingFeeds.delete(feedId);
+    renderChannels();
+  }
+}
+
+function refreshAll() {
+  if (feeds.length === 0) return;
+  feeds.forEach(f => refreshFeed(f.id));
+}
+
+function deleteFeed(feedId) {
+  const feed = feeds.find(f => f.id === feedId);
+  if (!feed) return;
+  if (!confirm(`Remove "${feed.name}"?`)) return;
+  feeds = feeds.filter(f => f.id !== feedId);
+  delete videoCache[feedId];
+  collapsedFeeds.delete(feedId);
+  saveFeeds();
+  saveCollapsed();
+  renderChannels();
+}
+
+// ─── Rendering ────────────────────────────────────────────────────────────────
+function renderChannels() {
+  const list = document.getElementById('channels-list');
+
+  if (feeds.length === 0) {
+    list.innerHTML = '<div class="empty-msg">No channels yet — add a YouTube channel above.</div>';
+    return;
+  }
+
+  list.innerHTML = feeds.map(feed => {
+    const busy      = loadingFeeds.has(feed.id);
+    const videos    = (videoCache[feed.id] || []).slice(0, videoLimit);
+    const count     = videoCache[feed.id] ? videos.length : '…';
+    const collapsed = collapsedFeeds.has(feed.id);
+    const id        = feed.id;
+
+    const videoHTML = videos.length === 0
+      ? `<div class="empty-msg">${busy ? 'Loading…' : 'No videos loaded yet — click ↻ to refresh.'}</div>`
+      : videos.map(v => `
+          <a class="video-card" href="${escAttr(v.link)}" target="_blank" rel="noopener noreferrer">
+            <div class="video-thumb-wrap">
+              <img class="video-thumb" src="${escAttr(v.thumbnail)}" alt="" loading="lazy" onerror="this.style.display='none'">
+            </div>
+            <div class="video-info">
+              <div class="video-title">${esc(v.title)}</div>
+              <div class="video-meta">
+                <span class="video-date">${formatDate(v.published)}</span>
+              </div>
+            </div>
+          </a>`).join('');
+
+    return `
+      <div class="channel-block${collapsed ? ' collapsed' : ''}" id="cb-${id}">
+        <div class="channel-header" onclick="toggleCollapse('${id}')">
+          <span class="channel-chevron">▾</span>
+          <span class="channel-name">${esc(feed.name)}</span>
+          <span class="channel-count">${busy ? '<span class="spinner"></span>' : count + ' videos'}</span>
+          <button class="btn btn-ghost btn-sm"
+                  onclick="event.stopPropagation(); refreshFeed('${id}')"
+                  ${busy ? 'disabled' : ''}
+                  title="Refresh">↻</button>
+          <button class="btn btn-danger btn-sm"
+                  onclick="event.stopPropagation(); deleteFeed('${id}')"
+                  ${busy ? 'disabled' : ''}
+                  title="Remove">✕</button>
+        </div>
+        <div class="channel-body">
+          <div class="channel-body-inner">
+            <div class="videos-grid">${videoHTML}</div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ─── Utility ──────────────────────────────────────────────────────────────────
+function esc(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function escAttr(str) {
+  return String(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function formatDate(iso) {
+  if (!iso) return '';
+  try {
+    const diff = Date.now() - new Date(iso).getTime();
+    const d = Math.floor(diff / 86400000);
+    if (d === 0)  return 'Today';
+    if (d === 1)  return 'Yesterday';
+    if (d < 7)   return `${d}d ago`;
+    if (d < 30)  return `${Math.floor(d / 7)}w ago`;
+    if (d < 365) return `${Math.floor(d / 30)}mo ago`;
+    return `${Math.floor(d / 365)}y ago`;
+  } catch (e) { return ''; }
+}
+
+function setAddStatus(type, html) {
+  const el = document.getElementById('add-status');
+  el.className = `status-line ${type}`;
+  el.innerHTML = html;
+}
+
+function setAddBtnDisabled(v) {
+  document.getElementById('add-btn').disabled = v;
+}
+
+// ─── Event wiring ─────────────────────────────────────────────────────────────
+document.getElementById('add-btn').addEventListener('click', () => {
+  const val = document.getElementById('feed-input').value.trim();
+  if (val) addFeed(val);
+});
+
+document.getElementById('feed-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const val = e.target.value.trim();
+    if (val) addFeed(val);
+  }
+});
+
+document.getElementById('refresh-all-btn').addEventListener('click', refreshAll);
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+renderChannels();
+
+// Auto-refresh saved feeds on load
+if (feeds.length > 0) {
+  feeds.forEach(f => refreshFeed(f.id));
+}
+</script>
+</body>
+</html>
