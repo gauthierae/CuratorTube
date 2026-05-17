@@ -1,3 +1,7 @@
+---
+project: true
+---
+
 # CuratorTube
 
 A single-file YouTube RSS reader you can open directly in your browser — no server, no framework, no build step, no account required.
