@@ -1,5 +1,6 @@
 po/
 po/*
 CLAUDE.md
-.gitignore
 CuratorTube-old.html
+docs/
+docs/*
