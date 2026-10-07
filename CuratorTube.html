@@ -606,6 +606,9 @@
     <h1 class="masthead-title">CuratorTube</h1>
     <nav class="masthead-nav" aria-label="Site navigation">
       <button class="nav-item" id="nav-add-feed">Add feed</button>
+      <button class="nav-item" id="nav-export">Export</button>
+      <button class="nav-item" id="nav-import">Import</button>
+      <input type="file" id="import-file" accept=".json,.opml,.xml,application/json,text/xml" hidden>
       <button class="nav-item" id="nav-about">About</button>
       <button class="nav-item" id="nav-license">License</button>
     </nav>
@@ -640,6 +643,7 @@
         <button class="btn btn-ghost btn-sm" id="refresh-all-btn">↻ Refresh all</button>
       </div>
     </div>
+    <p class="status-line" id="data-status" role="status"></p>
     <div id="channels-list">
       <div class="empty-msg">No channels yet — add a YouTube channel above.</div>
     </div>
@@ -1142,6 +1146,89 @@ document.getElementById('nav-add-feed').addEventListener('click', () => {
   const isOpen  = section.classList.toggle('open');
   btn.classList.toggle('active', isOpen);
   if (isOpen) document.getElementById('feed-input').focus();
+});
+
+// ─── Export / import ──────────────────────────────────────────────────────────
+function setDataStatus(type, text) {
+  const el = document.getElementById('data-status');
+  el.className = `status-line ${type}`;
+  el.textContent = text;
+}
+
+function exportFeeds() {
+  if (feeds.length === 0) { setDataStatus('error', 'Nothing to export yet.'); return; }
+  const data = {
+    app: 'CuratorTube',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    videoLimit,
+    feeds: feeds.map(({ name, url, addedAt }) => ({ name, url, addedAt })),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `curatortube-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  setDataStatus('success', `Exported ${feeds.length} channel${feeds.length > 1 ? 's' : ''}.`);
+}
+
+// Accepts a CuratorTube JSON backup or an OPML file from another reader.
+function parseImport(text) {
+  const trimmed = text.trim();
+  if (trimmed.startsWith('{')) {
+    const data = JSON.parse(trimmed);
+    if (!data || !Array.isArray(data.feeds)) throw new Error('Not a CuratorTube backup.');
+    return data.feeds.map(f => ({ name: f && f.name, url: f && f.url, addedAt: f && f.addedAt }));
+  }
+  const xml = new DOMParser().parseFromString(trimmed, 'text/xml');
+  if (xml.querySelector('parsererror')) throw new Error('Unrecognised file format.');
+  return Array.from(xml.querySelectorAll('outline[xmlUrl]')).map(o => ({
+    name: o.getAttribute('title') || o.getAttribute('text') || '',
+    url:  o.getAttribute('xmlUrl'),
+  }));
+}
+
+async function importFeeds(file) {
+  try {
+    const entries = parseImport(await file.text());
+    let added = 0, skipped = 0;
+    const fresh = [];
+    for (const e of entries) {
+      const url = typeof e.url === 'string' ? e.url.trim() : '';
+      if (!/^https?:\/\//i.test(url) || feeds.some(f => f.url === url)) { skipped++; continue; }
+      const feed = {
+        id:          uid(),
+        name:        (typeof e.name === 'string' && e.name.trim()) || 'Unknown Channel',
+        url,
+        addedAt:     typeof e.addedAt === 'string' ? e.addedAt : new Date().toISOString(),
+        lastFetched: null,
+      };
+      feeds.push(feed);
+      fresh.push(feed.id);
+      added++;
+    }
+    saveFeeds();
+    renderChannels();
+    setDataStatus(added ? 'success' : 'error',
+      `Imported ${added} channel${added === 1 ? '' : 's'}` + (skipped ? `, skipped ${skipped} (duplicate or invalid).` : '.'));
+    // Fetch only the new channels, a few at a time.
+    const queue = fresh.slice();
+    const worker = async () => { while (queue.length) await refreshFeed(queue.shift()); };
+    await Promise.all(Array.from({ length: REFRESH_CONCURRENCY }, worker));
+  } catch (err) {
+    setDataStatus('error', `Import failed: ${err.message}`);
+  }
+}
+
+document.getElementById('nav-export').addEventListener('click', exportFeeds);
+document.getElementById('nav-import').addEventListener('click', () => document.getElementById('import-file').click());
+document.getElementById('import-file').addEventListener('change', e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (file) importFeeds(file);
 });
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
