@@ -723,22 +723,36 @@ const PROXIES = [
     url:     u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
     extract: async r => r.text(),
   },
+  {
+    url:     u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+    extract: async r => r.text(),
+  },
+  {
+    url:     u => `https://thingproxy.freeboard.io/fetch/${u}`,
+    extract: async r => r.text(),
+  },
 ];
 
+// Tries each proxy in turn. On total failure the error lists what each one said,
+// e.g. "api.allorigins.win: HTTP 403; api.codetabs.com: timeout".
 async function fetchViaProxy(url) {
-  let lastErr;
+  const failures = [];
   for (const p of PROXIES) {
+    const host = new URL(p.url('https://x.invalid/')).hostname;
     try {
-      const res = await fetch(p.url(url), { signal: AbortSignal.timeout(10000) });
+      const res = await fetch(p.url(url), { signal: AbortSignal.timeout(15000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const contents = await p.extract(res);
-      if (!contents) throw new Error('Empty response');
+      if (!contents) throw new Error('empty response');
       return contents;
     } catch (e) {
-      lastErr = e;
+      const reason = e.name === 'TimeoutError' ? 'timeout'
+                   : e.name === 'TypeError'    ? 'blocked or unreachable'
+                   : e.message;
+      failures.push(`${host}: ${reason}`);
     }
   }
-  throw lastErr;
+  throw new Error(failures.join('; '));
 }
 
 // ─── State ─────────────────────────────────────────────────────────────────────
@@ -842,6 +856,11 @@ async function resolveInput(raw) {
   // Any other http URL — treat as direct RSS
   if (val.startsWith('http://') || val.startsWith('https://')) return val;
 
+  // Bare channel ID (UC + 22 characters)
+  if (/^UC[A-Za-z0-9_-]{22}$/.test(val)) {
+    return `https://www.youtube.com/feeds/videos.xml?channel_id=${val}`;
+  }
+
   // YouTube handle (@handle or bare handle)
   const handle = val.replace(/^@/, '');
   const pageUrl = `https://www.youtube.com/@${handle}`;
@@ -850,7 +869,7 @@ async function resolveInput(raw) {
   try {
     contents = await fetchViaProxy(pageUrl);
   } catch (e) {
-    throw new Error(`Network error while resolving @${handle}`);
+    throw new Error(`Could not look up @${handle} (${e.message}). Try again later, or paste the channel URL (youtube.com/channel/UC…) instead.`);
   }
 
   if (!contents) throw new Error(`Channel page empty (@${handle})`);
@@ -858,9 +877,13 @@ async function resolveInput(raw) {
   const match = contents.match(
     /href="(https:\/\/www\.youtube\.com\/feeds\/videos\.xml[^"]+)"/
   );
-  if (!match) throw new Error(`RSS feed not found for @${handle} — channel may not exist`);
+  if (match) return match[1].replace(/&amp;/g, '&');
 
-  return match[1].replace(/&amp;/g, '&');
+  // Fallback: the channel ID is also embedded elsewhere in the page.
+  const idMatch = contents.match(/"(?:externalId|channelId)":"(UC[A-Za-z0-9_-]{22})"/);
+  if (idMatch) return `https://www.youtube.com/feeds/videos.xml?channel_id=${idMatch[1]}`;
+
+  throw new Error(`RSS feed not found for @${handle} — channel may not exist`);
 }
 
 // ─── RSS fetch & parse ────────────────────────────────────────────────────────
@@ -869,7 +892,7 @@ async function fetchFeedData(url) {
   try {
     contents = await fetchViaProxy(url);
   } catch (e) {
-    throw new Error('Network error — could not reach feed');
+    throw new Error(`Could not reach feed (${e.message})`);
   }
 
   if (!contents) throw new Error('Empty response from proxy');
@@ -877,7 +900,9 @@ async function fetchFeedData(url) {
   const parser = new DOMParser();
   const xml = parser.parseFromString(contents, 'text/xml');
 
-  if (xml.querySelector('parsererror')) throw new Error('Invalid XML in feed response');
+  if (xml.querySelector('parsererror') || !xml.querySelector('feed > entry, feed > title')) {
+    throw new Error('Response is not a YouTube/Atom feed');
+  }
 
   const channelName = xml.querySelector('feed > title')?.textContent?.trim()
     || 'Unknown Channel';
