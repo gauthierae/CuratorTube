@@ -608,6 +608,7 @@
     <h1 class="masthead-title">CuratorTube</h1>
     <nav class="masthead-nav" aria-label="Site navigation">
       <button class="nav-item" id="nav-add-feed">Add feed</button>
+      <button class="nav-item" id="nav-proxy">Proxy</button>
       <button class="nav-item" id="nav-export">Export</button>
       <button class="nav-item" id="nav-import">Import</button>
       <input type="file" id="import-file" accept=".json,.opml,.xml,application/json,text/xml" hidden>
@@ -669,6 +670,16 @@
   <p><strong>CORS proxies:</strong> Feed fetches are routed through <a href="https://allorigins.win" target="_blank" rel="noopener">allorigins.win</a> and <a href="https://codetabs.com" target="_blank" rel="noopener">codetabs.com</a> — free, community-run services with no SLA. They may be rate-limited, slow, or go offline at any time. If a proxy fails, the app automatically tries the next one.</p>
 </div>
 
+<div hidden id="proxy-content" class="info-body">
+  <h3>Personal proxy</h3>
+  <p>CuratorTube needs a small relay to read YouTube from a web page. The free public relays are often down. If adding a channel fails, deploy your own free relay (see <code>worker/cors-proxy.js</code> and the README) and paste its address here.</p>
+  <div class="add-row">
+    <input type="text" id="proxy-input" placeholder="https://your-worker.workers.dev" autocomplete="off" spellcheck="false">
+    <button class="btn btn-primary" id="proxy-save">Save</button>
+  </div>
+  <p class="status-line" id="proxy-status" role="status"></p>
+</div>
+
 <div hidden id="license-content" class="info-body">
   <pre class="license-text">MIT License
 
@@ -727,17 +738,25 @@ const PROXIES = [
     url:     u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
     extract: async r => r.text(),
   },
-  {
-    url:     u => `https://thingproxy.freeboard.io/fetch/${u}`,
-    extract: async r => r.text(),
-  },
 ];
+
+// Optional personal proxy (see worker/cors-proxy.js), tried before the public ones.
+const PROXY_KEY = 'ct_proxy_url';
+function getCustomProxy() {
+  const base = (lsGet(PROXY_KEY) || '').trim().replace(/\/+$/, '');
+  if (!/^https:\/\//i.test(base)) return null;
+  return {
+    url:     u => `${base}/?url=${encodeURIComponent(u)}`,
+    extract: async r => r.text(),
+  };
+}
 
 // Tries each proxy in turn. On total failure the error lists what each one said,
 // e.g. "api.allorigins.win: HTTP 403; api.codetabs.com: timeout".
 async function fetchViaProxy(url) {
   const failures = [];
-  for (const p of PROXIES) {
+  const custom = getCustomProxy();
+  for (const p of custom ? [custom, ...PROXIES] : PROXIES) {
     const host = new URL(p.url('https://x.invalid/')).hostname;
     try {
       const res = await fetch(p.url(url), { signal: AbortSignal.timeout(15000) });
@@ -1226,9 +1245,10 @@ document.getElementById('import-file').addEventListener('change', e => {
 });
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
-function openModal(sourceId) {
+function openModal(sourceId, onOpen) {
   document.getElementById('modal-content').innerHTML =
     document.getElementById(sourceId).innerHTML;
+  if (onOpen) onOpen();
   const overlay = document.getElementById('modal-overlay');
   overlay.classList.add('open');
   overlay.setAttribute('aria-hidden', 'false');
@@ -1242,6 +1262,22 @@ function closeModal() {
   document.body.style.overflow = '';
 }
 
+document.getElementById('nav-proxy').addEventListener('click', () => openModal('proxy-content', () => {
+  const input  = document.getElementById('modal-content').querySelector('#proxy-input');
+  const status = document.getElementById('modal-content').querySelector('#proxy-status');
+  input.value = lsGet(PROXY_KEY) || '';
+  document.getElementById('modal-content').querySelector('#proxy-save').addEventListener('click', () => {
+    const v = input.value.trim().replace(/\/+$/, '');
+    if (v && !/^https:\/\//i.test(v)) {
+      status.className = 'status-line error';
+      status.textContent = 'The address must start with https://';
+      return;
+    }
+    lsSet(PROXY_KEY, v);
+    status.className = 'status-line success';
+    status.textContent = v ? 'Saved. It will be tried first.' : 'Removed. Public relays only.';
+  });
+}));
 document.getElementById('nav-about').addEventListener('click', () => openModal('about-content'));
 document.getElementById('nav-license').addEventListener('click', () => openModal('license-content'));
 document.getElementById('modal-close').addEventListener('click', closeModal);

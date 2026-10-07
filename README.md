@@ -35,6 +35,18 @@ No installation, no dependencies. Your channels and the last videos fetched are 
 
 The included workflow [`.github/workflows/pages.yml`](.github/workflows/pages.yml) does this on every push to `main`. Enable it once under **Settings → Pages → Source: GitHub Actions**.
 
+## Your own proxy (recommended)
+
+The free public CORS proxies are often down or blocked. A personal relay takes about five minutes and is free (Cloudflare Workers, 100,000 requests/day):
+
+1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com).
+2. Go to **Workers & Pages → Create → Create Worker**, name it (e.g. `curatortube`), and click **Deploy**.
+3. Click **Edit code**, replace everything with the content of [`worker/cors-proxy.js`](worker/cors-proxy.js), then **Deploy**.
+4. Copy the worker address (e.g. `https://curatortube.your-name.workers.dev`).
+5. In CuratorTube, click **Proxy**, paste the address, **Save**.
+
+The relay only forwards requests to youtube.com. CuratorTube tries it first and falls back to the public proxies.
+
 ## Disclaimers
 
 **YouTube:** CuratorTube reads YouTube's publicly available RSS feeds (`youtube.com/feeds/videos.xml`). It is not affiliated with, endorsed by, or in any way officially connected to YouTube or Google. When adding a channel by `@handle`, the app makes a one-time request to YouTube's website to look up the corresponding RSS feed URL; after that, only the RSS feed itself is polled.
