@@ -328,6 +328,12 @@
     .channel-block.collapsed .channel-body { grid-template-rows: 0fr; }
     .channel-body-inner { overflow: hidden; }
 
+    .feed-error {
+      font-size: 0.8125rem;
+      color: #7a3030;
+      margin-bottom: 1rem;
+    }
+
     /* ── Empty state ─────────────────────────────────────────────── */
     .empty-msg {
       font-family: 'JetBrains Mono', monospace;
@@ -769,8 +775,23 @@ try {
   if (Array.isArray(parsed)) feeds = parsed.filter(f => f && f.id && f.url);
 } catch (e) { feeds = []; }
 
-const videoCache   = {};   // feedId → Video[]
+const VIDEOS_KEY   = 'ct_videos_v1';
+const videoCache   = {};   // feedId → Video[]  (persisted, so the page is never blank on load)
 const loadingFeeds = new Set();
+const feedErrors   = new Map();   // feedId → last refresh error message (not persisted)
+
+try {
+  const stored = JSON.parse(localStorage.getItem(VIDEOS_KEY) || '{}');
+  if (stored && typeof stored === 'object') {
+    for (const f of feeds) {
+      if (Array.isArray(stored[f.id])) videoCache[f.id] = stored[f.id];
+    }
+  }
+} catch (e) { /* ignore corrupted cache */ }
+
+function saveVideos() {
+  lsSet(VIDEOS_KEY, JSON.stringify(videoCache));
+}
 
 const LIMIT_KEY     = 'ct_video_limit';
 const COLLAPSED_KEY = 'ct_collapsed';
@@ -934,6 +955,7 @@ async function addFeed(rawInput) {
     feeds.push(feed);
     videoCache[feed.id] = videos;
     saveFeeds();
+    saveVideos();
 
     document.getElementById('feed-input').value = '';
     setAddStatus('success', `Added: ${channelName} (${videos.length} videos)`);
@@ -958,9 +980,11 @@ async function refreshFeed(feedId) {
     feed.name        = channelName;
     feed.lastFetched = new Date().toISOString();
     videoCache[feedId] = videos;
+    feedErrors.delete(feedId);
     saveFeeds();
-    renderChannels();
+    saveVideos();
   } catch (err) {
+    feedErrors.set(feedId, err.message);
     console.warn(`Refresh failed for "${feed.name}":`, err.message);
   } finally {
     loadingFeeds.delete(feedId);
@@ -968,9 +992,22 @@ async function refreshFeed(feedId) {
   }
 }
 
-function refreshAll() {
-  if (feeds.length === 0) return;
-  feeds.forEach(f => refreshFeed(f.id));
+// Refresh feeds a few at a time: the free CORS proxies rate-limit bursts.
+const REFRESH_CONCURRENCY = 3;
+let refreshAllRunning = false;
+
+async function refreshAll() {
+  if (refreshAllRunning || feeds.length === 0) return;
+  refreshAllRunning = true;
+  const queue = feeds.map(f => f.id);
+  const worker = async () => {
+    while (queue.length) await refreshFeed(queue.shift());
+  };
+  try {
+    await Promise.all(Array.from({ length: REFRESH_CONCURRENCY }, worker));
+  } finally {
+    refreshAllRunning = false;
+  }
 }
 
 function deleteFeed(feedId) {
@@ -979,8 +1016,10 @@ function deleteFeed(feedId) {
   if (!confirm(`Remove "${feed.name}"?`)) return;
   feeds = feeds.filter(f => f.id !== feedId);
   delete videoCache[feedId];
+  feedErrors.delete(feedId);
   collapsedFeeds.delete(feedId);
   saveFeeds();
+  saveVideos();
   saveCollapsed();
   renderChannels();
 }
@@ -1000,6 +1039,10 @@ function renderChannels() {
     const count     = videoCache[feed.id] ? videos.length : '…';
     const collapsed = collapsedFeeds.has(feed.id);
     const id        = feed.id;
+    const error     = feedErrors.get(id);
+    const errorHTML = error
+      ? `<div class="feed-error">Refresh failed (${esc(error)}). ${feed.lastFetched ? 'Last updated: ' + esc(formatDate(feed.lastFetched)) + '.' : ''} Click ↻ to retry.</div>`
+      : '';
 
     const videoHTML = videos.length === 0
       ? `<div class="empty-msg">${busy ? 'Loading…' : 'No videos loaded yet — click ↻ to refresh.'}</div>`
@@ -1033,6 +1076,7 @@ function renderChannels() {
         </div>
         <div class="channel-body">
           <div class="channel-body-inner">
+            ${errorHTML}
             <div class="videos-grid">${videoHTML}</div>
           </div>
         </div>
@@ -1129,9 +1173,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 renderChannels();
 
 // Auto-refresh saved feeds on load
-if (feeds.length > 0) {
-  feeds.forEach(f => refreshFeed(f.id));
-}
+refreshAll();
 </script>
 </body>
 </html>
