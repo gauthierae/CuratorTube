@@ -8,7 +8,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="CuratorTube">
-  <link rel="manifest" id="app-manifest">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Instrument+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
@@ -700,44 +702,11 @@ SOFTWARE.</pre>
 </div>
 
 <script>
-// ─── PWA: Manifest (inline blob) ─────────────────────────────────────────────
-(function () {
-  const manifest = {
-    name: 'CuratorTube',
-    short_name: 'CuratorTube',
-    description: 'Your curated YouTube RSS reader',
-    start_url: window.location.href,
-    display: 'standalone',
-    background_color: '#f0f0f0',
-    theme_color: '#f5f2ec',
-    icons: [{
-      src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%23ff2020'/%3E%3Cpolygon points='38,26 78,50 38,74' fill='white'/%3E%3C/svg%3E",
-      sizes: 'any',
-      type: 'image/svg+xml',
-      purpose: 'any maskable'
-    }]
-  };
-  try {
-    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
-    document.getElementById('app-manifest').href = URL.createObjectURL(blob);
-  } catch (e) { /* non-critical */ }
-})();
-
-// ─── PWA: Service Worker (inline blob) ───────────────────────────────────────
-// Works when served over HTTPS; registration may be restricted on file:// origins.
-if ('serviceWorker' in navigator) {
-  const SW_CODE = `
-    const CACHE = 'curatorTube-v1';
-    self.addEventListener('install',  () => self.skipWaiting());
-    self.addEventListener('activate', e  => e.waitUntil(clients.claim()));
-    self.addEventListener('fetch',    e  => {
-      e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
-    });
-  `;
-  try {
-    const blob = new Blob([SW_CODE], { type: 'application/javascript' });
-    navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(() => {});
-  } catch (e) { /* non-critical */ }
+// ─── PWA: service worker ─────────────────────────────────────────────────────
+// Needs http(s): it is skipped when the file is opened from disk (file://).
+// sw.js, manifest.webmanifest and the icons live in pwa/ and are deployed with the page.
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  navigator.serviceWorker.register('sw.js').catch(() => { /* non-critical */ });
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────

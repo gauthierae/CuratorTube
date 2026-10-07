@@ -8,7 +8,7 @@ A single-file YouTube RSS reader you can open directly in your browser — no se
 
 ## What it does
 
-CuratorTube lets you subscribe to YouTube channels by handle (`@username`) or RSS feed URL and displays their latest videos in a clean, responsive grid. Channels are collapsible, and everything persists in your browser's local storage across sessions. It can be installed as a PWA via "Add to Home Screen" on mobile.
+CuratorTube lets you subscribe to YouTube channels by handle (`@username`) or RSS feed URL and displays their latest videos in a clean, responsive grid. Channels are collapsible, and everything persists in your browser's local storage across sessions. When served over HTTPS (e.g. GitHub Pages), it can be installed as a PWA via "Add to Home Screen" and opens offline.
 
 ## How to use
 
@@ -17,16 +17,23 @@ CuratorTube lets you subscribe to YouTube channels by handle (`@username`) or RS
 3. Type a YouTube handle (e.g. `@mkbhd`) or a direct RSS feed URL and click **Add feed**
 4. Click ↻ on any channel or **Refresh all** to load the latest videos
 
-No installation, no dependencies, no internet connection required after the file is saved (video fetches still require a connection).
+No installation, no dependencies. Your channels and the last videos fetched are stored in the browser, so the page opens instantly and works offline; refreshing still requires a connection.
 
 ## Features
 
 - Add channels by `@handle` or RSS URL
 - Collapsible per-channel video grids
 - Configurable video limit per channel (5–15)
-- Persists subscriptions in `localStorage`
-- Per-feed and global refresh
-- PWA-installable (Add to Home Screen)
+- Persists subscriptions and the latest videos in `localStorage`
+- Per-feed and global refresh (three feeds at a time), with an inline message when a refresh fails
+- **Export** subscriptions to JSON, **Import** from a JSON backup or an OPML file
+- PWA-installable with offline support when hosted over HTTPS
+
+## Hosting (optional, for the PWA)
+
+`CuratorTube.html` works on its own when opened from disk. To get the installable, offline-capable PWA, serve it over HTTPS together with the files in [`pwa/`](pwa/) (`sw.js`, `manifest.webmanifest`, icons) at the same level, with the page named `index.html`.
+
+The included workflow [`.github/workflows/pages.yml`](.github/workflows/pages.yml) does this on every push to `main`. Enable it once under **Settings → Pages → Source: GitHub Actions**.
 
 ## Disclaimers
 
