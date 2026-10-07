@@ -764,7 +764,10 @@ async function fetchViaProxy(url) {
 
 // ─── State ─────────────────────────────────────────────────────────────────────
 let feeds = [];
-try { feeds = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch (e) { feeds = []; }
+try {
+  const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+  if (Array.isArray(parsed)) feeds = parsed.filter(f => f && f.id && f.url);
+} catch (e) { feeds = []; }
 
 const videoCache   = {};   // feedId → Video[]
 const loadingFeeds = new Set();
@@ -772,11 +775,25 @@ const loadingFeeds = new Set();
 const LIMIT_KEY     = 'ct_video_limit';
 const COLLAPSED_KEY = 'ct_collapsed';
 
-let videoLimit = parseInt(localStorage.getItem(LIMIT_KEY) || '5', 10);
-const collapsedFeeds = new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '[]'));
+function lsGet(key) {
+  try { return localStorage.getItem(key); } catch (e) { return null; }
+}
+function lsSet(key, value) {
+  try { localStorage.setItem(key, value); return true; } catch (e) { return false; }
+}
+
+let videoLimit = parseInt(lsGet(LIMIT_KEY) || '5', 10);
+if (!(videoLimit >= 5 && videoLimit <= 15)) videoLimit = 5;
+
+let collapsedList = [];
+try {
+  const parsed = JSON.parse(lsGet(COLLAPSED_KEY) || '[]');
+  if (Array.isArray(parsed)) collapsedList = parsed;
+} catch (e) { /* corrupted value: start with nothing collapsed */ }
+const collapsedFeeds = new Set(collapsedList);
 
 function saveCollapsed() {
-  localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsedFeeds]));
+  lsSet(COLLAPSED_KEY, JSON.stringify([...collapsedFeeds]));
 }
 
 function toggleCollapse(feedId) {
@@ -801,13 +818,13 @@ function toggleCollapse(feedId) {
   }
   sel.addEventListener('change', () => {
     videoLimit = parseInt(sel.value, 10);
-    localStorage.setItem(LIMIT_KEY, videoLimit);
+    lsSet(LIMIT_KEY, videoLimit);
     renderChannels();
   });
 })();
 
 function saveFeeds() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(feeds));
+  lsSet(STORAGE_KEY, JSON.stringify(feeds));
 }
 
 function uid() {
@@ -874,13 +891,16 @@ async function fetchFeedData(url) {
   const videos = Array.from(xml.querySelectorAll('entry')).map(entry => {
     const videoId  = entry.getElementsByTagNameNS(YT_NS, 'videoId')[0]?.textContent || '';
     const title    = entry.querySelector('title')?.textContent || 'Untitled';
-    const link     = entry.querySelector('link[rel="alternate"]')?.getAttribute('href')
-                     || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : '#');
+    // Feed content comes through third-party proxies: only accept http(s) links.
+    const rawLink  = entry.querySelector('link[rel="alternate"]')?.getAttribute('href') || '';
+    const link     = /^https?:\/\//i.test(rawLink) ? rawLink
+                     : (videoId ? `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` : '#');
     const published = entry.querySelector('published')?.textContent || '';
 
     const thumbEl   = entry.getElementsByTagNameNS(MEDIA_NS, 'thumbnail')[0];
-    const thumbnail = thumbEl?.getAttribute('url')
-                     || (videoId ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` : '');
+    const rawThumb  = thumbEl?.getAttribute('url') || '';
+    const thumbnail = /^https?:\/\//i.test(rawThumb) ? rawThumb
+                     : (videoId ? `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/mqdefault.jpg` : '');
 
     return { id: videoId || uid(), title, link, published, thumbnail, channelName };
   });
