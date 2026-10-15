@@ -1,0 +1,928 @@
+diff --git a/.github/workflows/pages.yml b/.github/workflows/pages.yml
+new file mode 100644
+index 0000000..40dd119
+--- /dev/null
++++ b/.github/workflows/pages.yml
+@@ -0,0 +1,34 @@
++name: Deploy to GitHub Pages
++
++on:
++  push:
++    branches: [main]
++  workflow_dispatch:
++
++permissions:
++  contents: read
++  pages: write
++  id-token: write
++
++concurrency:
++  group: pages
++  cancel-in-progress: true
++
++jobs:
++  deploy:
++    runs-on: ubuntu-latest
++    environment:
++      name: github-pages
++      url: ${{ steps.deployment.outputs.page_url }}
++    steps:
++      - uses: actions/checkout@v4
++      - name: Assemble site
++        run: |
++          mkdir _site
++          cp CuratorTube.html _site/index.html
++          cp pwa/* _site/
++      - uses: actions/upload-pages-artifact@v3
++        with:
++          path: _site
++      - id: deployment
++        uses: actions/deploy-pages@v4
+diff --git a/CuratorTube.html b/CuratorTube.html
+index 4c6dbbe..84d076d 100644
+--- a/CuratorTube.html
++++ b/CuratorTube.html
+@@ -8,7 +8,9 @@
+   <meta name="apple-mobile-web-app-capable" content="yes">
+   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+   <meta name="apple-mobile-web-app-title" content="CuratorTube">
+-  <link rel="manifest" id="app-manifest">
++  <link rel="manifest" href="manifest.webmanifest">
++  <link rel="icon" href="icon.svg" type="image/svg+xml">
++  <link rel="apple-touch-icon" href="icon-192.png">
+   <link rel="preconnect" href="https://fonts.googleapis.com">
+   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Instrument+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+@@ -328,6 +330,12 @@
+     .channel-block.collapsed .channel-body { grid-template-rows: 0fr; }
+     .channel-body-inner { overflow: hidden; }
+ 
++    .feed-error {
++      font-size: 0.8125rem;
++      color: #7a3030;
++      margin-bottom: 1rem;
++    }
++
+     /* ── Empty state ─────────────────────────────────────────────── */
+     .empty-msg {
+       font-family: 'JetBrains Mono', monospace;
+@@ -600,6 +608,10 @@
+     <h1 class="masthead-title">CuratorTube</h1>
+     <nav class="masthead-nav" aria-label="Site navigation">
+       <button class="nav-item" id="nav-add-feed">Add feed</button>
++      <button class="nav-item" id="nav-proxy">Proxy</button>
++      <button class="nav-item" id="nav-export">Export</button>
++      <button class="nav-item" id="nav-import">Import</button>
++      <input type="file" id="import-file" accept=".json,.opml,.xml,application/json,text/xml" hidden>
+       <button class="nav-item" id="nav-about">About</button>
+       <button class="nav-item" id="nav-license">License</button>
+     </nav>
+@@ -634,6 +646,7 @@
+         <button class="btn btn-ghost btn-sm" id="refresh-all-btn">↻ Refresh all</button>
+       </div>
+     </div>
++    <p class="status-line" id="data-status" role="status"></p>
+     <div id="channels-list">
+       <div class="empty-msg">No channels yet — add a YouTube channel above.</div>
+     </div>
+@@ -657,6 +670,16 @@
+   <p><strong>CORS proxies:</strong> Feed fetches are routed through <a href="https://allorigins.win" target="_blank" rel="noopener">allorigins.win</a> and <a href="https://codetabs.com" target="_blank" rel="noopener">codetabs.com</a> — free, community-run services with no SLA. They may be rate-limited, slow, or go offline at any time. If a proxy fails, the app automatically tries the next one.</p>
+ </div>
+ 
++<div hidden id="proxy-content" class="info-body">
++  <h3>Personal proxy</h3>
++  <p>CuratorTube needs a small relay to read YouTube from a web page. The free public relays are often down. If adding a channel fails, deploy your own free relay (see <code>worker/cors-proxy.js</code> and the README) and paste its address here.</p>
++  <div class="add-row">
++    <input type="text" id="proxy-input" placeholder="https://your-worker.workers.dev" autocomplete="off" spellcheck="false">
++    <button class="btn btn-primary" id="proxy-save">Save</button>
++  </div>
++  <p class="status-line" id="proxy-status" role="status"></p>
++</div>
++
+ <div hidden id="license-content" class="info-body">
+   <pre class="license-text">MIT License
+ 
+@@ -690,44 +713,11 @@ SOFTWARE.</pre>
+ </div>
+ 
+ <script>
+-// ─── PWA: Manifest (inline blob) ─────────────────────────────────────────────
+-(function () {
+-  const manifest = {
+-    name: 'CuratorTube',
+-    short_name: 'CuratorTube',
+-    description: 'Your curated YouTube RSS reader',
+-    start_url: window.location.href,
+-    display: 'standalone',
+-    background_color: '#f0f0f0',
+-    theme_color: '#f5f2ec',
+-    icons: [{
+-      src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%23ff2020'/%3E%3Cpolygon points='38,26 78,50 38,74' fill='white'/%3E%3C/svg%3E",
+-      sizes: 'any',
+-      type: 'image/svg+xml',
+-      purpose: 'any maskable'
+-    }]
+-  };
+-  try {
+-    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+-    document.getElementById('app-manifest').href = URL.createObjectURL(blob);
+-  } catch (e) { /* non-critical */ }
+-})();
+-
+-// ─── PWA: Service Worker (inline blob) ───────────────────────────────────────
+-// Works when served over HTTPS; registration may be restricted on file:// origins.
+-if ('serviceWorker' in navigator) {
+-  const SW_CODE = `
+-    const CACHE = 'curatorTube-v1';
+-    self.addEventListener('install',  () => self.skipWaiting());
+-    self.addEventListener('activate', e  => e.waitUntil(clients.claim()));
+-    self.addEventListener('fetch',    e  => {
+-      e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+-    });
+-  `;
+-  try {
+-    const blob = new Blob([SW_CODE], { type: 'application/javascript' });
+-    navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(() => {});
+-  } catch (e) { /* non-critical */ }
++// ─── PWA: service worker ─────────────────────────────────────────────────────
++// Needs http(s): it is skipped when the file is opened from disk (file://).
++// sw.js, manifest.webmanifest and the icons live in pwa/ and are deployed with the page.
++if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
++  navigator.serviceWorker.register('sw.js').catch(() => { /* non-critical */ });
+ }
+ 
+ // ─── Constants ────────────────────────────────────────────────────────────────
+@@ -744,39 +734,93 @@ const PROXIES = [
+     url:     u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+     extract: async r => r.text(),
+   },
++  {
++    url:     u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
++    extract: async r => r.text(),
++  },
+ ];
+ 
++// Optional personal proxy (see worker/cors-proxy.js), tried before the public ones.
++const PROXY_KEY = 'ct_proxy_url';
++function getCustomProxy() {
++  const base = (lsGet(PROXY_KEY) || '').trim().replace(/\/+$/, '');
++  if (!/^https:\/\//i.test(base)) return null;
++  return {
++    url:     u => `${base}/?url=${encodeURIComponent(u)}`,
++    extract: async r => r.text(),
++  };
++}
++
++// Tries each proxy in turn. On total failure the error lists what each one said,
++// e.g. "api.allorigins.win: HTTP 403; api.codetabs.com: timeout".
+ async function fetchViaProxy(url) {
+-  let lastErr;
+-  for (const p of PROXIES) {
++  const failures = [];
++  const custom = getCustomProxy();
++  for (const p of custom ? [custom, ...PROXIES] : PROXIES) {
++    const host = new URL(p.url('https://x.invalid/')).hostname;
+     try {
+-      const res = await fetch(p.url(url), { signal: AbortSignal.timeout(10000) });
++      const res = await fetch(p.url(url), { signal: AbortSignal.timeout(15000) });
+       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+       const contents = await p.extract(res);
+-      if (!contents) throw new Error('Empty response');
++      if (!contents) throw new Error('empty response');
+       return contents;
+     } catch (e) {
+-      lastErr = e;
++      const reason = e.name === 'TimeoutError' ? 'timeout'
++                   : e.name === 'TypeError'    ? 'blocked or unreachable'
++                   : e.message;
++      failures.push(`${host}: ${reason}`);
+     }
+   }
+-  throw lastErr;
++  throw new Error(failures.join('; '));
+ }
+ 
+ // ─── State ─────────────────────────────────────────────────────────────────────
+ let feeds = [];
+-try { feeds = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch (e) { feeds = []; }
++try {
++  const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
++  if (Array.isArray(parsed)) feeds = parsed.filter(f => f && f.id && f.url);
++} catch (e) { feeds = []; }
+ 
+-const videoCache   = {};   // feedId → Video[]
++const VIDEOS_KEY   = 'ct_videos_v1';
++const videoCache   = {};   // feedId → Video[]  (persisted, so the page is never blank on load)
+ const loadingFeeds = new Set();
++const feedErrors   = new Map();   // feedId → last refresh error message (not persisted)
++
++try {
++  const stored = JSON.parse(localStorage.getItem(VIDEOS_KEY) || '{}');
++  if (stored && typeof stored === 'object') {
++    for (const f of feeds) {
++      if (Array.isArray(stored[f.id])) videoCache[f.id] = stored[f.id];
++    }
++  }
++} catch (e) { /* ignore corrupted cache */ }
++
++function saveVideos() {
++  lsSet(VIDEOS_KEY, JSON.stringify(videoCache));
++}
+ 
+ const LIMIT_KEY     = 'ct_video_limit';
+ const COLLAPSED_KEY = 'ct_collapsed';
+ 
+-let videoLimit = parseInt(localStorage.getItem(LIMIT_KEY) || '5', 10);
+-const collapsedFeeds = new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '[]'));
++function lsGet(key) {
++  try { return localStorage.getItem(key); } catch (e) { return null; }
++}
++function lsSet(key, value) {
++  try { localStorage.setItem(key, value); return true; } catch (e) { return false; }
++}
++
++let videoLimit = parseInt(lsGet(LIMIT_KEY) || '5', 10);
++if (!(videoLimit >= 5 && videoLimit <= 15)) videoLimit = 5;
++
++let collapsedList = [];
++try {
++  const parsed = JSON.parse(lsGet(COLLAPSED_KEY) || '[]');
++  if (Array.isArray(parsed)) collapsedList = parsed;
++} catch (e) { /* corrupted value: start with nothing collapsed */ }
++const collapsedFeeds = new Set(collapsedList);
+ 
+ function saveCollapsed() {
+-  localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsedFeeds]));
++  lsSet(COLLAPSED_KEY, JSON.stringify([...collapsedFeeds]));
+ }
+ 
+ function toggleCollapse(feedId) {
+@@ -801,13 +845,13 @@ function toggleCollapse(feedId) {
+   }
+   sel.addEventListener('change', () => {
+     videoLimit = parseInt(sel.value, 10);
+-    localStorage.setItem(LIMIT_KEY, videoLimit);
++    lsSet(LIMIT_KEY, videoLimit);
+     renderChannels();
+   });
+ })();
+ 
+ function saveFeeds() {
+-  localStorage.setItem(STORAGE_KEY, JSON.stringify(feeds));
++  lsSet(STORAGE_KEY, JSON.stringify(feeds));
+ }
+ 
+ function uid() {
+@@ -831,6 +875,11 @@ async function resolveInput(raw) {
+   // Any other http URL — treat as direct RSS
+   if (val.startsWith('http://') || val.startsWith('https://')) return val;
+ 
++  // Bare channel ID (UC + 22 characters)
++  if (/^UC[A-Za-z0-9_-]{22}$/.test(val)) {
++    return `https://www.youtube.com/feeds/videos.xml?channel_id=${val}`;
++  }
++
+   // YouTube handle (@handle or bare handle)
+   const handle = val.replace(/^@/, '');
+   const pageUrl = `https://www.youtube.com/@${handle}`;
+@@ -839,7 +888,7 @@ async function resolveInput(raw) {
+   try {
+     contents = await fetchViaProxy(pageUrl);
+   } catch (e) {
+-    throw new Error(`Network error while resolving @${handle}`);
++    throw new Error(`Could not look up @${handle} (${e.message}). Try again later, or paste the channel URL (youtube.com/channel/UC…) instead.`);
+   }
+ 
+   if (!contents) throw new Error(`Channel page empty (@${handle})`);
+@@ -847,9 +896,13 @@ async function resolveInput(raw) {
+   const match = contents.match(
+     /href="(https:\/\/www\.youtube\.com\/feeds\/videos\.xml[^"]+)"/
+   );
+-  if (!match) throw new Error(`RSS feed not found for @${handle} — channel may not exist`);
++  if (match) return match[1].replace(/&amp;/g, '&');
++
++  // Fallback: the channel ID is also embedded elsewhere in the page.
++  const idMatch = contents.match(/"(?:externalId|channelId)":"(UC[A-Za-z0-9_-]{22})"/);
++  if (idMatch) return `https://www.youtube.com/feeds/videos.xml?channel_id=${idMatch[1]}`;
+ 
+-  return match[1].replace(/&amp;/g, '&');
++  throw new Error(`RSS feed not found for @${handle} — channel may not exist`);
+ }
+ 
+ // ─── RSS fetch & parse ────────────────────────────────────────────────────────
+@@ -858,7 +911,7 @@ async function fetchFeedData(url) {
+   try {
+     contents = await fetchViaProxy(url);
+   } catch (e) {
+-    throw new Error('Network error — could not reach feed');
++    throw new Error(`Could not reach feed (${e.message})`);
+   }
+ 
+   if (!contents) throw new Error('Empty response from proxy');
+@@ -866,7 +919,9 @@ async function fetchFeedData(url) {
+   const parser = new DOMParser();
+   const xml = parser.parseFromString(contents, 'text/xml');
+ 
+-  if (xml.querySelector('parsererror')) throw new Error('Invalid XML in feed response');
++  if (xml.querySelector('parsererror') || !xml.querySelector('feed > entry, feed > title')) {
++    throw new Error('Response is not a YouTube/Atom feed');
++  }
+ 
+   const channelName = xml.querySelector('feed > title')?.textContent?.trim()
+     || 'Unknown Channel';
+@@ -874,13 +929,16 @@ async function fetchFeedData(url) {
+   const videos = Array.from(xml.querySelectorAll('entry')).map(entry => {
+     const videoId  = entry.getElementsByTagNameNS(YT_NS, 'videoId')[0]?.textContent || '';
+     const title    = entry.querySelector('title')?.textContent || 'Untitled';
+-    const link     = entry.querySelector('link[rel="alternate"]')?.getAttribute('href')
+-                     || (videoId ? `https://www.youtube.com/watch?v=${videoId}` : '#');
++    // Feed content comes through third-party proxies: only accept http(s) links.
++    const rawLink  = entry.querySelector('link[rel="alternate"]')?.getAttribute('href') || '';
++    const link     = /^https?:\/\//i.test(rawLink) ? rawLink
++                     : (videoId ? `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` : '#');
+     const published = entry.querySelector('published')?.textContent || '';
+ 
+     const thumbEl   = entry.getElementsByTagNameNS(MEDIA_NS, 'thumbnail')[0];
+-    const thumbnail = thumbEl?.getAttribute('url')
+-                     || (videoId ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` : '');
++    const rawThumb  = thumbEl?.getAttribute('url') || '';
++    const thumbnail = /^https?:\/\//i.test(rawThumb) ? rawThumb
++                     : (videoId ? `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/mqdefault.jpg` : '');
+ 
+     return { id: videoId || uid(), title, link, published, thumbnail, channelName };
+   });
+@@ -914,6 +972,7 @@ async function addFeed(rawInput) {
+     feeds.push(feed);
+     videoCache[feed.id] = videos;
+     saveFeeds();
++    saveVideos();
+ 
+     document.getElementById('feed-input').value = '';
+     setAddStatus('success', `Added: ${channelName} (${videos.length} videos)`);
+@@ -938,9 +997,11 @@ async function refreshFeed(feedId) {
+     feed.name        = channelName;
+     feed.lastFetched = new Date().toISOString();
+     videoCache[feedId] = videos;
++    feedErrors.delete(feedId);
+     saveFeeds();
+-    renderChannels();
++    saveVideos();
+   } catch (err) {
++    feedErrors.set(feedId, err.message);
+     console.warn(`Refresh failed for "${feed.name}":`, err.message);
+   } finally {
+     loadingFeeds.delete(feedId);
+@@ -948,9 +1009,22 @@ async function refreshFeed(feedId) {
+   }
+ }
+ 
+-function refreshAll() {
+-  if (feeds.length === 0) return;
+-  feeds.forEach(f => refreshFeed(f.id));
++// Refresh feeds a few at a time: the free CORS proxies rate-limit bursts.
++const REFRESH_CONCURRENCY = 3;
++let refreshAllRunning = false;
++
++async function refreshAll() {
++  if (refreshAllRunning || feeds.length === 0) return;
++  refreshAllRunning = true;
++  const queue = feeds.map(f => f.id);
++  const worker = async () => {
++    while (queue.length) await refreshFeed(queue.shift());
++  };
++  try {
++    await Promise.all(Array.from({ length: REFRESH_CONCURRENCY }, worker));
++  } finally {
++    refreshAllRunning = false;
++  }
+ }
+ 
+ function deleteFeed(feedId) {
+@@ -959,8 +1033,10 @@ function deleteFeed(feedId) {
+   if (!confirm(`Remove "${feed.name}"?`)) return;
+   feeds = feeds.filter(f => f.id !== feedId);
+   delete videoCache[feedId];
++  feedErrors.delete(feedId);
+   collapsedFeeds.delete(feedId);
+   saveFeeds();
++  saveVideos();
+   saveCollapsed();
+   renderChannels();
+ }
+@@ -980,6 +1056,10 @@ function renderChannels() {
+     const count     = videoCache[feed.id] ? videos.length : '…';
+     const collapsed = collapsedFeeds.has(feed.id);
+     const id        = feed.id;
++    const error     = feedErrors.get(id);
++    const errorHTML = error
++      ? `<div class="feed-error">Refresh failed (${esc(error)}). ${feed.lastFetched ? 'Last updated: ' + esc(formatDate(feed.lastFetched)) + '.' : ''} Click ↻ to retry.</div>`
++      : '';
+ 
+     const videoHTML = videos.length === 0
+       ? `<div class="empty-msg">${busy ? 'Loading…' : 'No videos loaded yet — click ↻ to refresh.'}</div>`
+@@ -1013,6 +1093,7 @@ function renderChannels() {
+         </div>
+         <div class="channel-body">
+           <div class="channel-body-inner">
++            ${errorHTML}
+             <div class="videos-grid">${videoHTML}</div>
+           </div>
+         </div>
+@@ -1080,10 +1161,94 @@ document.getElementById('nav-add-feed').addEventListener('click', () => {
+   if (isOpen) document.getElementById('feed-input').focus();
+ });
+ 
++// ─── Export / import ──────────────────────────────────────────────────────────
++function setDataStatus(type, text) {
++  const el = document.getElementById('data-status');
++  el.className = `status-line ${type}`;
++  el.textContent = text;
++}
++
++function exportFeeds() {
++  if (feeds.length === 0) { setDataStatus('error', 'Nothing to export yet.'); return; }
++  const data = {
++    app: 'CuratorTube',
++    version: 1,
++    exportedAt: new Date().toISOString(),
++    videoLimit,
++    feeds: feeds.map(({ name, url, addedAt }) => ({ name, url, addedAt })),
++  };
++  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
++  const a = document.createElement('a');
++  a.href = URL.createObjectURL(blob);
++  a.download = `curatortube-${new Date().toISOString().slice(0, 10)}.json`;
++  document.body.appendChild(a);
++  a.click();
++  a.remove();
++  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
++  setDataStatus('success', `Exported ${feeds.length} channel${feeds.length > 1 ? 's' : ''}.`);
++}
++
++// Accepts a CuratorTube JSON backup or an OPML file from another reader.
++function parseImport(text) {
++  const trimmed = text.trim();
++  if (trimmed.startsWith('{')) {
++    const data = JSON.parse(trimmed);
++    if (!data || !Array.isArray(data.feeds)) throw new Error('Not a CuratorTube backup.');
++    return data.feeds.map(f => ({ name: f && f.name, url: f && f.url, addedAt: f && f.addedAt }));
++  }
++  const xml = new DOMParser().parseFromString(trimmed, 'text/xml');
++  if (xml.querySelector('parsererror')) throw new Error('Unrecognised file format.');
++  return Array.from(xml.querySelectorAll('outline[xmlUrl]')).map(o => ({
++    name: o.getAttribute('title') || o.getAttribute('text') || '',
++    url:  o.getAttribute('xmlUrl'),
++  }));
++}
++
++async function importFeeds(file) {
++  try {
++    const entries = parseImport(await file.text());
++    let added = 0, skipped = 0;
++    const fresh = [];
++    for (const e of entries) {
++      const url = typeof e.url === 'string' ? e.url.trim() : '';
++      if (!/^https?:\/\//i.test(url) || feeds.some(f => f.url === url)) { skipped++; continue; }
++      const feed = {
++        id:          uid(),
++        name:        (typeof e.name === 'string' && e.name.trim()) || 'Unknown Channel',
++        url,
++        addedAt:     typeof e.addedAt === 'string' ? e.addedAt : new Date().toISOString(),
++        lastFetched: null,
++      };
++      feeds.push(feed);
++      fresh.push(feed.id);
++      added++;
++    }
++    saveFeeds();
++    renderChannels();
++    setDataStatus(added ? 'success' : 'error',
++      `Imported ${added} channel${added === 1 ? '' : 's'}` + (skipped ? `, skipped ${skipped} (duplicate or invalid).` : '.'));
++    // Fetch only the new channels, a few at a time.
++    const queue = fresh.slice();
++    const worker = async () => { while (queue.length) await refreshFeed(queue.shift()); };
++    await Promise.all(Array.from({ length: REFRESH_CONCURRENCY }, worker));
++  } catch (err) {
++    setDataStatus('error', `Import failed: ${err.message}`);
++  }
++}
++
++document.getElementById('nav-export').addEventListener('click', exportFeeds);
++document.getElementById('nav-import').addEventListener('click', () => document.getElementById('import-file').click());
++document.getElementById('import-file').addEventListener('change', e => {
++  const file = e.target.files[0];
++  e.target.value = '';
++  if (file) importFeeds(file);
++});
++
+ // ─── Modal ────────────────────────────────────────────────────────────────────
+-function openModal(sourceId) {
++function openModal(sourceId, onOpen) {
+   document.getElementById('modal-content').innerHTML =
+     document.getElementById(sourceId).innerHTML;
++  if (onOpen) onOpen();
+   const overlay = document.getElementById('modal-overlay');
+   overlay.classList.add('open');
+   overlay.setAttribute('aria-hidden', 'false');
+@@ -1097,6 +1262,22 @@ function closeModal() {
+   document.body.style.overflow = '';
+ }
+ 
++document.getElementById('nav-proxy').addEventListener('click', () => openModal('proxy-content', () => {
++  const input  = document.getElementById('modal-content').querySelector('#proxy-input');
++  const status = document.getElementById('modal-content').querySelector('#proxy-status');
++  input.value = lsGet(PROXY_KEY) || '';
++  document.getElementById('modal-content').querySelector('#proxy-save').addEventListener('click', () => {
++    const v = input.value.trim().replace(/\/+$/, '');
++    if (v && !/^https:\/\//i.test(v)) {
++      status.className = 'status-line error';
++      status.textContent = 'The address must start with https://';
++      return;
++    }
++    lsSet(PROXY_KEY, v);
++    status.className = 'status-line success';
++    status.textContent = v ? 'Saved. It will be tried first.' : 'Removed. Public relays only.';
++  });
++}));
+ document.getElementById('nav-about').addEventListener('click', () => openModal('about-content'));
+ document.getElementById('nav-license').addEventListener('click', () => openModal('license-content'));
+ document.getElementById('modal-close').addEventListener('click', closeModal);
+@@ -1109,9 +1290,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
+ renderChannels();
+ 
+ // Auto-refresh saved feeds on load
+-if (feeds.length > 0) {
+-  feeds.forEach(f => refreshFeed(f.id));
+-}
++refreshAll();
+ </script>
+ </body>
+ </html>
+diff --git a/README.md b/README.md
+index 46b2c33..6612518 100644
+--- a/README.md
++++ b/README.md
+@@ -8,7 +8,7 @@ A single-file YouTube RSS reader you can open directly in your browser — no se
+ 
+ ## What it does
+ 
+-CuratorTube lets you subscribe to YouTube channels by handle (`@username`) or RSS feed URL and displays their latest videos in a clean, responsive grid. Channels are collapsible, and everything persists in your browser's local storage across sessions. It can be installed as a PWA via "Add to Home Screen" on mobile.
++CuratorTube lets you subscribe to YouTube channels by handle (`@username`) or RSS feed URL and displays their latest videos in a clean, responsive grid. Channels are collapsible, and everything persists in your browser's local storage across sessions. When served over HTTPS (e.g. GitHub Pages), it can be installed as a PWA via "Add to Home Screen" and opens offline.
+ 
+ ## How to use
+ 
+@@ -17,16 +17,35 @@ CuratorTube lets you subscribe to YouTube channels by handle (`@username`) or RS
+ 3. Type a YouTube handle (e.g. `@mkbhd`) or a direct RSS feed URL and click **Add feed**
+ 4. Click ↻ on any channel or **Refresh all** to load the latest videos
+ 
+-No installation, no dependencies, no internet connection required after the file is saved (video fetches still require a connection).
++No installation, no dependencies. Your channels and the last videos fetched are stored in the browser, so the page opens instantly and works offline; refreshing still requires a connection.
+ 
+ ## Features
+ 
+ - Add channels by `@handle` or RSS URL
+ - Collapsible per-channel video grids
+ - Configurable video limit per channel (5–15)
+-- Persists subscriptions in `localStorage`
+-- Per-feed and global refresh
+-- PWA-installable (Add to Home Screen)
++- Persists subscriptions and the latest videos in `localStorage`
++- Per-feed and global refresh (three feeds at a time), with an inline message when a refresh fails
++- **Export** subscriptions to JSON, **Import** from a JSON backup or an OPML file
++- PWA-installable with offline support when hosted over HTTPS
++
++## Hosting (optional, for the PWA)
++
++`CuratorTube.html` works on its own when opened from disk. To get the installable, offline-capable PWA, serve it over HTTPS together with the files in [`pwa/`](pwa/) (`sw.js`, `manifest.webmanifest`, icons) at the same level, with the page named `index.html`.
++
++The included workflow [`.github/workflows/pages.yml`](.github/workflows/pages.yml) does this on every push to `main`. Enable it once under **Settings → Pages → Source: GitHub Actions**.
++
++## Your own proxy (recommended)
++
++The free public CORS proxies are often down or blocked. A personal relay takes about five minutes and is free (Cloudflare Workers, 100,000 requests/day):
++
++1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com).
++2. Go to **Workers & Pages → Create → Create Worker**, name it (e.g. `curatortube`), and click **Deploy**.
++3. Click **Edit code**, replace everything with the content of [`worker/cors-proxy.js`](worker/cors-proxy.js), then **Deploy**.
++4. Copy the worker address (e.g. `https://curatortube.your-name.workers.dev`).
++5. In CuratorTube, click **Proxy**, paste the address, **Save**.
++
++The relay only forwards requests to youtube.com. CuratorTube tries it first and falls back to the public proxies.
+ 
+ ## Disclaimers
+ 
+diff --git a/pwa/icon-192.png b/pwa/icon-192.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..e4f3b0c140d6cc63eca99d5d9989ba0e3e18ce67
+GIT binary patch
+literal 2450
+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
+SjeR1w0C#7i(;deXXZ{Uby<*(}
+
+literal 0
+HcmV?d00001
+
+diff --git a/pwa/icon-512.png b/pwa/icon-512.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..12ccecd1baabfeaec935fb536c1ee65fe655b13d
+GIT binary patch
+literal 7050
+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
+Z^MGx-3jATYJq269_@J3V!G5<t{s$i=tONi6
+
+literal 0
+HcmV?d00001
+
+diff --git a/pwa/icon.svg b/pwa/icon.svg
+new file mode 100644
+index 0000000..0d687f6
+--- /dev/null
++++ b/pwa/icon.svg
+@@ -0,0 +1 @@
++<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="18" fill="#ff2020"/><polygon points="38,26 78,50 38,74" fill="white"/></svg>
+diff --git a/pwa/manifest.webmanifest b/pwa/manifest.webmanifest
+new file mode 100644
+index 0000000..de045e2
+--- /dev/null
++++ b/pwa/manifest.webmanifest
+@@ -0,0 +1,15 @@
++{
++  "name": "CuratorTube",
++  "short_name": "CuratorTube",
++  "description": "Your curated YouTube RSS reader",
++  "start_url": "./",
++  "scope": "./",
++  "display": "standalone",
++  "background_color": "#f5f2ec",
++  "theme_color": "#f5f2ec",
++  "icons": [
++    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
++    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
++    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
++  ]
++}
+diff --git a/pwa/sw.js b/pwa/sw.js
+new file mode 100644
+index 0000000..f9ab4dc
+--- /dev/null
++++ b/pwa/sw.js
+@@ -0,0 +1,51 @@
++// CuratorTube service worker: makes the app shell available offline.
++// Feed data is never cached here — the page keeps its own copy in localStorage.
++const SHELL = 'curatortube-shell-v1';
++const ASSETS = 'curatortube-assets-v1';
++const SHELL_FILES = ['./', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
++
++self.addEventListener('install', e => {
++  e.waitUntil(caches.open(SHELL).then(c => c.addAll(SHELL_FILES)).then(() => self.skipWaiting()));
++});
++
++self.addEventListener('activate', e => {
++  e.waitUntil(
++    caches.keys()
++      .then(keys => Promise.all(keys.filter(k => k !== SHELL && k !== ASSETS).map(k => caches.delete(k))))
++      .then(() => self.clients.claim())
++  );
++});
++
++const ASSET_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com', 'i.ytimg.com'];
++
++self.addEventListener('fetch', e => {
++  const req = e.request;
++  if (req.method !== 'GET') return;
++  const url = new URL(req.url);
++
++  // App shell: network first (so updates show up), cache when offline.
++  if (url.origin === self.location.origin) {
++    e.respondWith(
++      fetch(req)
++        .then(res => {
++          if (res.ok) { const copy = res.clone(); caches.open(SHELL).then(c => c.put(req, copy)); }
++          return res;
++        })
++        .catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('./')))
++    );
++    return;
++  }
++
++  // Fonts and thumbnails: serve from cache, refresh in the background.
++  if (ASSET_HOSTS.includes(url.hostname)) {
++    e.respondWith(
++      caches.open(ASSETS).then(cache =>
++        cache.match(req).then(hit => {
++          const net = fetch(req).then(res => { cache.put(req, res.clone()); return res; }).catch(() => hit);
++          return hit || net;
++        })
++      )
++    );
++  }
++  // Everything else (the CORS proxies) goes straight to the network.
++});
+diff --git a/worker/cors-proxy.js b/worker/cors-proxy.js
+new file mode 100644
+index 0000000..7ae86c2
+--- /dev/null
++++ b/worker/cors-proxy.js
+@@ -0,0 +1,41 @@
++// CuratorTube personal CORS proxy — Cloudflare Worker.
++// Only forwards GET requests to youtube.com, and adds the CORS header the browser needs.
++// Usage: https://<your-worker>.workers.dev/?url=<encoded YouTube URL>
++
++const ALLOWED_HOSTS = ['www.youtube.com', 'youtube.com'];
++
++const CORS = {
++  'Access-Control-Allow-Origin': '*',
++  'Access-Control-Allow-Methods': 'GET, OPTIONS',
++  'Access-Control-Allow-Headers': '*',
++};
++
++export default {
++  async fetch(request) {
++    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
++    if (request.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: CORS });
++
++    const target = new URL(request.url).searchParams.get('url');
++    let url;
++    try { url = new URL(target); } catch (e) {
++      return new Response('Missing or invalid ?url=', { status: 400, headers: CORS });
++    }
++    if (url.protocol !== 'https:' || !ALLOWED_HOSTS.includes(url.hostname)) {
++      return new Response('Only youtube.com is allowed', { status: 403, headers: CORS });
++    }
++
++    const upstream = await fetch(url.toString(), {
++      headers: {
++        'User-Agent': 'Mozilla/5.0 (compatible; CuratorTube)',
++        'Accept-Language': 'en-US,en;q=0.9',
++        // Skips the cookie-consent interstitial that hides the feed link in the page.
++        'Cookie': 'CONSENT=YES+1; SOCS=CAI',
++      },
++      cf: { cacheTtl: 300, cacheEverything: true },
++    });
++
++    const headers = new Headers(CORS);
++    headers.set('Content-Type', upstream.headers.get('Content-Type') || 'text/plain; charset=utf-8');
++    return new Response(upstream.body, { status: upstream.status, headers });
++  },
++};
